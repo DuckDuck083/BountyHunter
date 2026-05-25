@@ -221,8 +221,18 @@ canvas {
 }
 
 .controls p,
+.controls ul,
 #sheriffText {
   line-height: 1.35;
+}
+
+.controls ul {
+  margin: 0;
+  padding-left: 19px;
+}
+
+.controls li + li {
+  margin-top: 5px;
 }
 
 .message-log {

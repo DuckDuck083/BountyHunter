@@ -69,6 +69,7 @@ const state = {
   completedBounty: null,
   tutorial: false,
   tutorialStep: 0,
+  bossActive: false,
   weaponIndex: 0,
   rigIndex: 0,
   devMode: false,
@@ -100,6 +101,7 @@ const state = {
   lastSpawn: 0,
   campRemaining: 0,
   campRequired: 0,
+  campReturnMode: "trail",
   nightAnnounced: false,
   items: { boots: false, armor: false, bedroll: false, lantern: false, charm: false, dynamite: 0, bait: 0 },
   lastTime: performance.now(),
@@ -346,6 +348,7 @@ function enterWilderness() {
   state.baits = [];
   state.obstacles = makeObstacles();
   state.nightAnnounced = false;
+  state.bossActive = true;
   spawnBountyFight();
   log(`You found ${state.selectedBounty.name}. Keep moving and use cover.`);
   updateUi();
@@ -487,7 +490,10 @@ function triggerTrailEvent() {
 }
 
 function startCamp() {
+  if (state.mode === "camp") return;
+  state.campReturnMode = state.mode;
   state.mode = "camp";
+  state.bossActive = false;
   state.campRequired = state.items.bedroll ? 12000 : 17000;
   state.campRemaining = state.campRequired;
   state.player.x = 480;
@@ -518,7 +524,7 @@ function updateWild(now, dt) {
   resolveHits();
   cleanupCombat();
   if (state.time >= 19 && !state.completedBounty) startCamp();
-  if (state.enemies.every((enemy) => !enemy.boss) && state.mode === "wild") completeBounty();
+  if (state.bossActive && state.mode === "wild" && !state.enemies.some((enemy) => enemy.boss)) completeBounty();
 }
 
 function updateCamp(now, dt) {
@@ -544,13 +550,18 @@ function updateCamp(now, dt) {
     spawnEnemy(Math.random() < 0.42 ? "charger" : "monster", true);
   }
   if (state.campRemaining <= 0) {
-    state.mode = state.horse.progress >= state.selectedBounty.travel ? "wild" : "trail";
     state.time = 6;
     state.enemies = [];
     state.bullets = [];
     state.enemyShots = [];
-    log("Sunrise. The trail is open again.");
-    updateUi();
+    if (state.campReturnMode === "wild" || state.horse.progress >= state.selectedBounty.travel) {
+      enterWilderness();
+      log("Sunrise. You picked up the bounty trail again.");
+    } else {
+      state.mode = "trail";
+      log("Sunrise. The trail is open again.");
+      updateUi();
+    }
   }
 }
 
@@ -599,9 +610,11 @@ function shoot(now) {
   for (let i = 0; i < shots; i += 1) {
     const angle = Math.atan2(state.mouse.y - state.player.y, state.mouse.x - state.player.x)
       + (Math.random() - 0.5) * weapon.spread;
+    const muzzleX = state.player.x + Math.cos(angle) * (state.player.r + 10);
+    const muzzleY = state.player.y + Math.sin(angle) * (state.player.r + 10);
     state.bullets.push({
-      x: state.player.x,
-      y: state.player.y,
+      x: muzzleX,
+      y: muzzleY,
       vx: Math.cos(angle) * weapon.speed + state.player.vx * 0.25,
       vy: Math.sin(angle) * weapon.speed + state.player.vy * 0.25,
       r: shots > 1 ? 3 : 4,
@@ -704,6 +717,7 @@ function cleanupCombat() {
 function completeBounty() {
   state.completedBounty = state.selectedBounty;
   state.mode = "town";
+  state.bossActive = false;
   state.enemies = [];
   state.bullets = [];
   state.enemyShots = [];
