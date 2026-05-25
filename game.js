@@ -6,6 +6,8 @@ const ui = {
   coins: document.querySelector("#coins"),
   hp: document.querySelector("#hp"),
   hpBar: document.querySelector("#hpBar"),
+  supplies: document.querySelector("#supplies"),
+  rig: document.querySelector("#rig"),
   day: document.querySelector("#day"),
   weapon: document.querySelector("#weapon"),
   place: document.querySelector("#placeLabel"),
@@ -28,6 +30,13 @@ const weapons = [
   { name: "Ghost Lantern Carbine", damage: 56, rate: 210, spread: 0.06, speed: 12.5, range: 96, kick: 0.65, cost: 850 },
 ];
 
+const rigs = [
+  { name: "Handcart", cost: 0, speed: 0.92, armor: 1, storage: 6, hazard: 1.08 },
+  { name: "Covered Wagon", cost: 150, speed: 1, armor: 0.78, storage: 10, hazard: 0.9 },
+  { name: "Stagecoach", cost: 360, speed: 1.18, armor: 0.68, storage: 12, hazard: 0.78 },
+  { name: "Armored Supply Train", cost: 720, speed: 1.38, armor: 0.52, storage: 16, hazard: 0.58 },
+];
+
 const storeItems = [
   { id: "boots", name: "Spur Boots", cost: 120, text: "+12% movement control", apply: () => state.items.boots = true },
   { id: "armor", name: "Tin Star Vest", cost: 180, text: "Incoming damage -18%", apply: () => state.items.armor = true },
@@ -37,6 +46,7 @@ const storeItems = [
   { id: "dynamite", name: "Dynamite Bundle", cost: 95, text: "Press Space to blast enemies", repeat: true, stack: "dynamite", apply: () => state.items.dynamite += 1 },
   { id: "bait", name: "Blood Jerky Bait", cost: 80, text: "Press E to distract monsters", repeat: true, stack: "bait", apply: () => state.items.bait += 1 },
   { id: "charm", name: "Coyote Tooth Charm", cost: 260, text: "Bounty rewards +20%", apply: () => state.items.charm = true },
+  { id: "supplies", name: "Trail Supplies", cost: 35, text: "+4 food, ammo, and medicine", repeat: true, apply: () => state.supplies = Math.min(rigs[state.rigIndex].storage, state.supplies + 4) },
 ];
 
 const names = [
@@ -60,8 +70,10 @@ const state = {
   tutorial: false,
   tutorialStep: 0,
   weaponIndex: 0,
+  rigIndex: 0,
   devMode: false,
   devCode: "",
+  supplies: 6,
   player: {
     x: 160,
     y: 300,
@@ -73,6 +85,8 @@ const state = {
     invincible: 0,
   },
   horse: { y: 280, vy: 0, progress: 0, damageCooldown: 0 },
+  trailEventCooldown: 0,
+  trailNotice: "",
   enemies: [],
   bullets: [],
   enemyShots: [],
@@ -141,6 +155,17 @@ function renderBounties() {
 
 function renderShop() {
   ui.shopList.innerHTML = "";
+  rigs.slice(1).forEach((rig, index) => {
+    const realIndex = index + 1;
+    const owned = state.rigIndex >= realIndex;
+    addShopCard(rig.name, `${rig.cost} coins | safer trail, more supplies, faster travel`, owned ? "Owned" : "Buy", owned || (!state.devMode && state.coins < rig.cost), () => {
+      if (!state.devMode) state.coins -= rig.cost;
+      state.rigIndex = realIndex;
+      state.supplies = Math.max(state.supplies, Math.ceil(rig.storage / 2));
+      log(`${rig.name} bought. The trail will be less punishing.`);
+      refreshShop();
+    });
+  });
   weapons.slice(1).forEach((weapon, index) => {
     const realIndex = index + 1;
     const owned = state.weaponIndex >= realIndex;
@@ -184,10 +209,13 @@ function updateUi() {
   if (state.devMode) {
     state.coins = 999999;
     state.player.hp = state.player.maxHp;
+    state.supplies = rigs[state.rigIndex].storage;
   }
   ui.coins.textContent = state.devMode ? "∞" : Math.floor(state.coins);
   ui.hp.textContent = state.devMode ? "∞" : Math.max(0, Math.ceil(state.player.hp));
   ui.hpBar.style.width = state.devMode ? "100%" : `${clamp((state.player.hp / state.player.maxHp) * 100, 0, 100)}%`;
+  ui.supplies.textContent = state.devMode ? "∞" : state.supplies;
+  ui.rig.textContent = rigs[state.rigIndex].name;
   ui.day.textContent = state.day;
   ui.weapon.textContent = weapons[state.weaponIndex].name;
   const timeText = state.time >= 19 || state.time < 6 ? "Night" : state.time >= 17 ? "Dusk" : "Day";
@@ -277,6 +305,7 @@ window.addEventListener("keydown", (event) => {
       state.devMode = true;
       state.coins = 999999;
       state.player.hp = state.player.maxHp;
+      state.supplies = rigs[state.rigIndex].storage;
       log("Dev testing mode enabled: infinite coins and health.");
       refreshShop();
     }
@@ -300,7 +329,9 @@ function enterTrail() {
   state.horse = { y: 280, vy: 0, progress: 0, damageCooldown: 0 };
   state.trailHazards = [];
   state.particles = [];
-  log(state.tutorial ? "Tutorial: steer up and down to avoid trail hazards." : "Ride the trail. Dodge rocks, wagons, ravines, and thorn scrub before the fight.");
+  state.trailEventCooldown = 1400;
+  state.trailNotice = "";
+  log(state.tutorial ? "Tutorial: travel is slower and safer. Keep supplies above zero." : "Trail started. Better rigs, supplies, and steady steering matter more than twitch dodging.");
   updateUi();
 }
 
@@ -378,27 +409,30 @@ function makeObstacles() {
 
 function updateTrail(dt) {
   const seconds = dt / 1000;
+  const rig = rigs[state.rigIndex];
   state.time += seconds * 0.85;
-  state.horse.progress += (state.tutorial ? 112 : 96) * seconds;
+  state.horse.progress += (state.tutorial ? 112 : 96) * rig.speed * seconds;
   state.horse.damageCooldown = Math.max(0, state.horse.damageCooldown - dt);
+  state.trailEventCooldown -= dt;
   let input = 0;
   if (state.keys.has("w") || state.keys.has("arrowup")) input -= 1;
   if (state.keys.has("s") || state.keys.has("arrowdown")) input += 1;
   state.horse.vy += input * 0.44;
-  state.horse.vy *= 0.9;
-  state.horse.y = clamp(state.horse.y + state.horse.vy * 5, 86, 492);
+  state.horse.vy *= 0.84;
+  state.horse.y = clamp(state.horse.y + state.horse.vy * 4.1, 112, 468);
 
-  const hazardChance = state.tutorial ? 0.012 : 0.02 + state.day * 0.0025;
+  const hazardChance = (state.tutorial ? 0.006 : 0.011 + state.day * 0.0015) * rig.hazard;
   if (Math.random() < hazardChance) spawnTrailHazard();
   if (state.tutorial && state.tutorialStep === 0 && state.horse.progress > 90) {
     state.tutorialStep = 1;
-    log("Tutorial: stay between hazards. Getting hit hurts, but this run is forgiving.");
+    log("Tutorial: supplies protect you from bad trail events. Better rigs carry more.");
   }
+  if (state.trailEventCooldown <= 0) triggerTrailEvent();
   state.trailHazards.forEach((hazard) => {
     hazard.x -= hazard.speed * seconds;
     if (circleRect({ x: 150, y: state.horse.y, r: 18 }, hazard) && state.horse.damageCooldown <= 0) {
       state.horse.damageCooldown = 700;
-      hurtPlayer(hazard.damage, false);
+      hurtPlayer(Math.ceil(hazard.damage * rig.armor), false);
       burst(150, state.horse.y, "#f2c36c", 14);
     }
   });
@@ -420,9 +454,36 @@ function spawnTrailHazard() {
     ...pick,
     x: canvas.width + 40,
     y: 80 + Math.random() * 400,
-    speed: (state.tutorial ? 170 : 205) + state.day * 10 + Math.random() * (state.tutorial ? 34 : 58),
+    speed: (state.tutorial ? 135 : 155) + state.day * 7 + Math.random() * (state.tutorial ? 22 : 38),
     damage: Math.ceil(pick.damage * (state.tutorial ? 0.45 : 0.65)),
   });
+}
+
+function triggerTrailEvent() {
+  const rig = rigs[state.rigIndex];
+  state.trailEventCooldown = 5200 + Math.random() * 5200;
+  const events = [
+    { text: "A creek crossing slows the rig.", supplies: -1, hp: 0 },
+    { text: "You find an abandoned flour sack.", supplies: 2, hp: 0 },
+    { text: "A cold rain soaks the camp.", supplies: -1, hp: 4 },
+    { text: "A trader swaps medicine for bullets.", supplies: 1, hp: -5 },
+    { text: "A broken axle is patched with spare parts.", supplies: -2, hp: 0 },
+  ];
+  const event = events[Math.floor(Math.random() * events.length)];
+  const supplyChange = event.supplies;
+  if (supplyChange !== 0) {
+    state.supplies = clamp(state.supplies + supplyChange, 0, rig.storage);
+  }
+  if (event.hp > 0 && state.supplies <= 0) hurtPlayer(event.hp, false);
+  if (event.hp < 0) state.player.hp = Math.min(state.player.maxHp, state.player.hp - event.hp);
+  if (state.supplies <= 0 && !state.devMode) {
+    hurtPlayer(4 + state.day, false);
+    state.trailNotice = "Out of supplies. The whole trip gets dangerous.";
+  } else {
+    state.trailNotice = event.text;
+  }
+  log(state.trailNotice);
+  updateUi();
 }
 
 function startCamp() {
