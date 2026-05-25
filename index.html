@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dustfall Bounty</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="game-shell">
+    <section class="topbar" aria-label="Status">
+      <div>
+        <h1>Dustfall Bounty</h1>
+        <p id="placeLabel">Town: pick a bounty from the board.</p>
+      </div>
+      <div class="stats">
+        <span>Coins <strong id="coins">0</strong></span>
+        <span>HP <strong id="hp">100</strong></span>
+        <span>Day <strong id="day">1</strong></span>
+        <span>Weapon <strong id="weapon">Rusty Revolver</strong></span>
+      </div>
+    </section>
+
+    <section class="stage">
+      <canvas id="game" width="960" height="560" aria-label="Wild west bounty hunter game"></canvas>
+
+      <aside class="panel">
+        <nav class="tabs" aria-label="Town actions">
+          <button class="tab active" data-view="board">Bounty</button>
+          <button class="tab" data-view="sheriff">Sheriff</button>
+          <button class="tab" data-view="shop">Shop</button>
+        </nav>
+
+        <div id="boardView" class="view active">
+          <h2>Bounty Board</h2>
+          <div id="bountyList" class="bounty-list"></div>
+          <button id="rideOut" class="primary">Ride Into Wilderness</button>
+        </div>
+
+        <div id="sheriffView" class="view">
+          <h2>Sheriff Station</h2>
+          <p id="sheriffText">Bring proof of a completed bounty to claim coins.</p>
+          <button id="claimReward" class="primary">Claim Reward</button>
+        </div>
+
+        <div id="shopView" class="view">
+          <h2>Gunsmith</h2>
+          <div id="shopList" class="shop-list"></div>
+        </div>
+
+        <div class="controls">
+          <h2>Controls</h2>
+          <p>Move with WASD or arrow keys. Aim with the mouse. Click to shoot. On the trail, steer up and down. Press Space for dynamite and E for bait if bought.</p>
+        </div>
+      </aside>
+    </section>
+
+    <section class="message-log" id="log" aria-live="polite"></section>
+  </main>
+
+  <script src="game.js"></script>
+</body>
+</html>
