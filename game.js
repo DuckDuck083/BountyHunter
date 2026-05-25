@@ -1,15 +1,18 @@
 const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
 
 const ui = {
   coins: document.querySelector("#coins"),
   hp: document.querySelector("#hp"),
+  hpBar: document.querySelector("#hpBar"),
   day: document.querySelector("#day"),
   weapon: document.querySelector("#weapon"),
   place: document.querySelector("#placeLabel"),
   log: document.querySelector("#log"),
   bountyList: document.querySelector("#bountyList"),
   rideOut: document.querySelector("#rideOut"),
+  tutorialRide: document.querySelector("#tutorialRide"),
   claimReward: document.querySelector("#claimReward"),
   sheriffText: document.querySelector("#sheriffText"),
   shopList: document.querySelector("#shopList"),
@@ -54,7 +57,11 @@ const state = {
   time: 10,
   selectedBounty: null,
   completedBounty: null,
+  tutorial: false,
+  tutorialStep: 0,
   weaponIndex: 0,
+  devMode: false,
+  devCode: "",
   player: {
     x: 160,
     y: 300,
@@ -93,7 +100,7 @@ let currentBounties = bountyOptions();
 
 function bountyOptions() {
   return Array.from({ length: 3 }, (_, i) => {
-    const base = state.day + i + 1;
+    const base = state.day + i;
     const pick = names[(state.day + i) % names.length];
     const monster = pick[1] === "monster";
     return {
@@ -102,11 +109,11 @@ function bountyOptions() {
       type: pick[1],
       reward: 80 + base * 34,
       danger: base,
-      hp: 130 + base * 44 + (monster ? 35 : 0),
-      damage: 14 + base * 4,
-      speed: 1.45 + base * 0.1,
-      minions: Math.min(12, 3 + Math.floor(base * 0.85)),
-      travel: 760 + base * 120,
+      hp: 100 + base * 34 + (monster ? 25 : 0),
+      damage: 10 + base * 3,
+      speed: 1.2 + base * 0.075,
+      minions: Math.min(10, 2 + Math.floor(base * 0.65)),
+      travel: 560 + base * 80,
     };
   });
 }
@@ -137,8 +144,8 @@ function renderShop() {
   weapons.slice(1).forEach((weapon, index) => {
     const realIndex = index + 1;
     const owned = state.weaponIndex >= realIndex;
-    addShopCard(weapon.name, `${weapon.damage} damage | ${weapon.cost} coins`, owned ? "Owned" : "Buy", owned || state.coins < weapon.cost, () => {
-      state.coins -= weapon.cost;
+    addShopCard(weapon.name, `${weapon.damage} damage | ${weapon.cost} coins`, owned ? "Owned" : "Buy", owned || (!state.devMode && state.coins < weapon.cost), () => {
+      if (!state.devMode) state.coins -= weapon.cost;
       state.weaponIndex = realIndex;
       log(`${weapon.name} bought. Stronger bounties will still punish bad aim.`);
       refreshShop();
@@ -147,8 +154,8 @@ function renderShop() {
   storeItems.forEach((item) => {
     const owned = !item.repeat && Boolean(state.items[item.id]);
     const count = item.stack ? ` (${state.items[item.stack]})` : "";
-    addShopCard(`${item.name}${count}`, `${item.text} | ${item.cost} coins`, owned ? "Owned" : "Buy", owned || state.coins < item.cost, () => {
-      state.coins -= item.cost;
+    addShopCard(`${item.name}${count}`, `${item.text} | ${item.cost} coins`, owned ? "Owned" : "Buy", owned || (!state.devMode && state.coins < item.cost), () => {
+      if (!state.devMode) state.coins -= item.cost;
       item.apply();
       log(`${item.name} purchased.`);
       refreshShop();
@@ -174,8 +181,13 @@ function refreshShop() {
 }
 
 function updateUi() {
-  ui.coins.textContent = Math.floor(state.coins);
-  ui.hp.textContent = Math.max(0, Math.ceil(state.player.hp));
+  if (state.devMode) {
+    state.coins = 999999;
+    state.player.hp = state.player.maxHp;
+  }
+  ui.coins.textContent = state.devMode ? "∞" : Math.floor(state.coins);
+  ui.hp.textContent = state.devMode ? "∞" : Math.max(0, Math.ceil(state.player.hp));
+  ui.hpBar.style.width = state.devMode ? "100%" : `${clamp((state.player.hp / state.player.maxHp) * 100, 0, 100)}%`;
   ui.day.textContent = state.day;
   ui.weapon.textContent = weapons[state.weaponIndex].name;
   const timeText = state.time >= 19 || state.time < 6 ? "Night" : state.time >= 17 ? "Dusk" : "Day";
@@ -183,6 +195,7 @@ function updateUi() {
     ? "Town: choose a bounty, shop, or claim a reward."
     : `${labelForMode()} | ${timeText} ${String(Math.floor(state.time)).padStart(2, "0")}:00`;
   ui.rideOut.disabled = !state.selectedBounty || state.mode !== "town";
+  ui.tutorialRide.disabled = state.mode !== "town";
   ui.claimReward.disabled = !state.completedBounty || state.mode !== "town";
   ui.sheriffText.textContent = state.completedBounty
     ? `${state.completedBounty.name} is down. Claim ${rewardValue(state.completedBounty)} coins.`
@@ -213,7 +226,31 @@ document.querySelectorAll(".tab").forEach((button) => {
 });
 
 ui.rideOut.addEventListener("click", () => {
-  if (state.selectedBounty) enterTrail();
+  if (state.selectedBounty) {
+    state.tutorial = false;
+    enterTrail();
+  }
+});
+
+ui.tutorialRide.addEventListener("click", () => {
+  state.tutorial = true;
+  state.tutorialStep = 0;
+  state.selectedBounty = {
+    id: "tutorial",
+    name: "Practice Dust Imp",
+    type: "monster",
+    reward: 55,
+    danger: 0,
+    hp: 75,
+    damage: 6,
+    speed: 0.95,
+    minions: 1,
+    travel: 360,
+  };
+  state.player.hp = state.player.maxHp;
+  renderBounties();
+  log("Tutorial run started. Follow the trail, dodge a few hazards, then defeat a weak bounty.");
+  enterTrail();
 });
 
 ui.claimReward.addEventListener("click", () => {
@@ -234,6 +271,16 @@ ui.claimReward.addEventListener("click", () => {
 
 window.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
+  if (key.length === 1) {
+    state.devCode = `${state.devCode}${key}`.slice(-12);
+    if (state.devCode === "mustardmango" && !state.devMode) {
+      state.devMode = true;
+      state.coins = 999999;
+      state.player.hp = state.player.maxHp;
+      log("Dev testing mode enabled: infinite coins and health.");
+      refreshShop();
+    }
+  }
   state.keys.add(key);
   if (key === " " && state.mode !== "town") useDynamite();
   if (key === "e" && state.mode !== "town") useBait();
@@ -253,7 +300,7 @@ function enterTrail() {
   state.horse = { y: 280, vy: 0, progress: 0, damageCooldown: 0 };
   state.trailHazards = [];
   state.particles = [];
-  log("Ride the trail. Dodge rocks, wagons, ravines, and thorn scrub before the fight.");
+  log(state.tutorial ? "Tutorial: steer up and down to avoid trail hazards." : "Ride the trail. Dodge rocks, wagons, ravines, and thorn scrub before the fight.");
   updateUi();
 }
 
@@ -291,14 +338,16 @@ function spawnBountyFight() {
     cooldown: 450,
     mood: "hunt",
   }];
-  for (let i = 0; i < bounty.minions; i += 1) {
+  const minions = state.tutorial ? 1 : bounty.minions;
+  for (let i = 0; i < minions; i += 1) {
     spawnEnemy(i % 3 === 0 ? "rifleman" : i % 3 === 1 ? "charger" : "monster", false);
   }
 }
 
 function spawnEnemy(kind, night) {
   const edge = Math.random() < 0.5 ? -30 : canvas.width + 30;
-  const hp = (night ? 38 : 48) + state.day * (night ? 10 : 14);
+  const ease = state.tutorial ? 0.5 : 1;
+  const hp = ((night ? 30 : 42) + state.day * (night ? 6 : 11)) * ease;
   state.enemies.push({
     boss: false,
     type: kind,
@@ -310,8 +359,8 @@ function spawnEnemy(kind, night) {
     r: kind === "charger" ? 13 : 15,
     hp,
     maxHp: hp,
-    damage: (night ? 11 : 9) + state.day * 2.4,
-    speed: (kind === "charger" ? 2.35 : 1.55) + state.day * 0.075 + (night ? 0.25 : 0),
+    damage: ((night ? 6 : 7) + state.day * (night ? 1.1 : 1.75)) * ease,
+    speed: ((kind === "charger" ? 2.05 : 1.35) + state.day * 0.055 + (night ? 0.02 : 0)) * (state.tutorial ? 0.75 : 1),
     cooldown: 500 + Math.random() * 1000,
     mood: kind === "rifleman" ? "kite" : "hunt",
   });
@@ -330,7 +379,7 @@ function makeObstacles() {
 function updateTrail(dt) {
   const seconds = dt / 1000;
   state.time += seconds * 0.85;
-  state.horse.progress += 82 * seconds;
+  state.horse.progress += (state.tutorial ? 112 : 96) * seconds;
   state.horse.damageCooldown = Math.max(0, state.horse.damageCooldown - dt);
   let input = 0;
   if (state.keys.has("w") || state.keys.has("arrowup")) input -= 1;
@@ -339,7 +388,12 @@ function updateTrail(dt) {
   state.horse.vy *= 0.9;
   state.horse.y = clamp(state.horse.y + state.horse.vy * 5, 86, 492);
 
-  if (Math.random() < 0.035 + state.day * 0.004) spawnTrailHazard();
+  const hazardChance = state.tutorial ? 0.012 : 0.02 + state.day * 0.0025;
+  if (Math.random() < hazardChance) spawnTrailHazard();
+  if (state.tutorial && state.tutorialStep === 0 && state.horse.progress > 90) {
+    state.tutorialStep = 1;
+    log("Tutorial: stay between hazards. Getting hit hurts, but this run is forgiving.");
+  }
   state.trailHazards.forEach((hazard) => {
     hazard.x -= hazard.speed * seconds;
     if (circleRect({ x: 150, y: state.horse.y, r: 18 }, hazard) && state.horse.damageCooldown <= 0) {
@@ -366,13 +420,14 @@ function spawnTrailHazard() {
     ...pick,
     x: canvas.width + 40,
     y: 80 + Math.random() * 400,
-    speed: 255 + state.day * 18 + Math.random() * 80,
+    speed: (state.tutorial ? 170 : 205) + state.day * 10 + Math.random() * (state.tutorial ? 34 : 58),
+    damage: Math.ceil(pick.damage * (state.tutorial ? 0.45 : 0.65)),
   });
 }
 
 function startCamp() {
   state.mode = "camp";
-  state.campRequired = state.items.bedroll ? 15000 : 22000;
+  state.campRequired = state.items.bedroll ? 12000 : 17000;
   state.campRemaining = state.campRequired;
   state.player.x = 480;
   state.player.y = 300;
@@ -389,6 +444,10 @@ function startCamp() {
 
 function updateWild(now, dt) {
   advanceTime(dt);
+  if (state.tutorial && state.tutorialStep < 2) {
+    state.tutorialStep = 2;
+    log("Tutorial: aim with the mouse and click to shoot. Keep distance from enemies.");
+  }
   movePlayer(dt);
   shoot(now);
   updateProjectiles();
@@ -404,6 +463,10 @@ function updateWild(now, dt) {
 function updateCamp(now, dt) {
   state.time = 23;
   state.campRemaining -= dt;
+  if (state.tutorial && state.tutorialStep < 3) {
+    state.tutorialStep = 3;
+    log("Tutorial: night camp is a short survival wave. Move around the fire and thin out monsters.");
+  }
   movePlayer(dt);
   shoot(now);
   updateProjectiles();
@@ -412,10 +475,12 @@ function updateCamp(now, dt) {
   updateParticles();
   resolveHits();
   cleanupCombat();
-  const spawnRate = state.items.lantern ? 1450 : 980;
-  if (now - state.lastSpawn > Math.max(420, spawnRate - state.day * 45)) {
+  const spawnRate = state.tutorial ? 3600 : state.items.lantern ? 2950 : 2300;
+  const nightCap = state.tutorial ? 2 : Math.min(6, 2 + Math.ceil(state.day / 3));
+  const nightCount = state.enemies.filter((enemy) => enemy.name === "Night Stalker").length;
+  if (nightCount < nightCap && now - state.lastSpawn > Math.max(850, spawnRate - state.day * 55)) {
     state.lastSpawn = now;
-    spawnEnemy(Math.random() < 0.55 ? "charger" : "monster", true);
+    spawnEnemy(Math.random() < 0.42 ? "charger" : "monster", true);
   }
   if (state.campRemaining <= 0) {
     state.mode = state.horse.progress >= state.selectedBounty.travel ? "wild" : "trail";
@@ -582,12 +647,20 @@ function completeBounty() {
   state.bullets = [];
   state.enemyShots = [];
   state.baits = [];
-  log(`${state.completedBounty.name} is defeated. Report to the sheriff before spending the reward.`);
+  log(state.tutorial
+    ? "Tutorial complete. Claim the reward at the sheriff, then try a real bounty."
+    : `${state.completedBounty.name} is defeated. Report to the sheriff before spending the reward.`);
+  state.tutorial = false;
   updateUi();
   switchTab("sheriff");
 }
 
 function hurtPlayer(amount, invincible) {
+  if (state.devMode) {
+    state.player.hp = state.player.maxHp;
+    updateUi();
+    return;
+  }
   if (invincible && state.player.invincible > 0) return;
   const damage = amount * (state.items.armor ? 0.82 : 1);
   state.player.hp -= damage;
@@ -700,9 +773,13 @@ function drawTrail() {
 
 function drawWild() {
   drawSky(state.time >= 18 || state.mode === "camp");
-  drawGround();
-  drawCacti();
-  drawDust();
+  if (state.mode === "camp") {
+    drawPixelCamp();
+  } else {
+    drawGround();
+    drawCacti();
+    drawDust();
+  }
   drawObstacles();
   state.baits.forEach((bait) => drawCircle(bait.x, bait.y, bait.r, "rgba(140, 35, 32, 0.65)"));
   state.bullets.forEach((bullet) => drawCircle(bullet.x, bullet.y, bullet.r, "#ffd15a"));
@@ -713,6 +790,58 @@ function drawWild() {
   drawReticle();
   if (state.mode === "camp") drawTextPlate(`Camp until sunrise: ${Math.ceil(state.campRemaining / 1000)}s`, 36, 34, 260);
   else drawTextPlate("Use rocks and wagons for cover. Do not let dusk catch you.", 36, 34, 505);
+}
+
+function drawPixelCamp() {
+  ctx.fillStyle = "#49311f";
+  ctx.fillRect(0, 300, canvas.width, 260);
+  for (let y = 308; y < 560; y += 16) {
+    for (let x = (y / 16) % 2 ? 0 : 12; x < canvas.width; x += 32) {
+      ctx.fillStyle = (x * 7 + y * 3) % 19 === 0 ? "#6c4a2f" : "#5a3a23";
+      ctx.fillRect(x, y, 16, 8);
+    }
+  }
+
+  ctx.fillStyle = "#243126";
+  ctx.fillRect(72, 338, 44, 88);
+  ctx.fillRect(84, 318, 20, 30);
+  ctx.fillRect(832, 322, 52, 108);
+  ctx.fillRect(848, 294, 20, 36);
+
+  ctx.fillStyle = "#3b2a24";
+  ctx.fillRect(605, 332, 142, 82);
+  ctx.fillStyle = "#8b4c28";
+  ctx.fillRect(622, 348, 108, 66);
+  ctx.fillStyle = "#2a1a12";
+  ctx.fillRect(658, 374, 36, 40);
+  ctx.fillStyle = "#d8b070";
+  ctx.fillRect(632, 356, 24, 18);
+  ctx.fillRect(700, 356, 20, 18);
+
+  ctx.fillStyle = "#2a1a12";
+  ctx.fillRect(396, 380, 110, 12);
+  ctx.fillRect(414, 392, 18, 18);
+  ctx.fillRect(466, 392, 18, 18);
+  ctx.fillStyle = "#7b431e";
+  ctx.fillRect(418, 352, 56, 28);
+  ctx.fillStyle = "#c8873d";
+  ctx.fillRect(438, 336, 18, 18);
+
+  drawPixelFire(480, 310);
+  ctx.fillStyle = "rgba(255, 154, 54, 0.18)";
+  ctx.fillRect(360, 230, 240, 185);
+}
+
+function drawPixelFire(x, y) {
+  ctx.fillStyle = "#3a1e12";
+  ctx.fillRect(x - 42, y + 56, 84, 12);
+  ctx.fillStyle = "#ffcf5c";
+  ctx.fillRect(x - 10, y + 18, 20, 48);
+  ctx.fillStyle = "#f06a2d";
+  ctx.fillRect(x - 24, y + 34, 18, 34);
+  ctx.fillRect(x + 8, y + 30, 20, 38);
+  ctx.fillStyle = "#ffe28a";
+  ctx.fillRect(x - 5, y + 32, 10, 28);
 }
 
 function drawSky(night) {

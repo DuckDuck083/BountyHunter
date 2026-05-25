@@ -107,7 +107,31 @@ canvas {
   border-radius: 8px;
   display: block;
   height: auto;
+  image-rendering: pixelated;
   max-height: calc(100vh - 178px);
+  width: 100%;
+}
+
+.hp-stat {
+  display: grid;
+  gap: 5px;
+}
+
+.hp-stat i {
+  background: #4a1514;
+  border: 1px solid #d7a65e;
+  border-radius: 999px;
+  display: block;
+  height: 10px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.hp-stat b {
+  background: linear-gradient(90deg, #d8332f, #f5b342, #55b86a);
+  display: block;
+  height: 100%;
+  transition: width 120ms linear;
   width: 100%;
 }
 
@@ -176,7 +200,8 @@ canvas {
 
 .bounty button,
 .shop-item button,
-.primary {
+.primary,
+.secondary {
   background: var(--green);
   margin-top: 4px;
   width: 100%;
@@ -184,6 +209,10 @@ canvas {
 
 .primary {
   background: var(--red);
+}
+
+.secondary {
+  background: var(--blue);
 }
 
 .controls {
